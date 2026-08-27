@@ -58,11 +58,7 @@ function ProcessPolyfillPlugin(): Plugin {
 
 export default defineConfig({
   ...sharedConfig,
-  plugins: [
-    ...sharedConfig.plugins!,
-    WatchVuePlugin(),
-    ProcessPolyfillPlugin()
-  ],
+  plugins: [...sharedConfig.plugins!, WatchVuePlugin(), ProcessPolyfillPlugin()],
   define: {
     __DEV__: isDev,
     __NAME__: JSON.stringify(packageJson.name),

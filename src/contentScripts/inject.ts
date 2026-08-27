@@ -70,7 +70,7 @@ function injector() {
 }
 
 if (document.readyState === "complete" || document.readyState === "interactive") {
-  injector();
+  injector()
 } else {
   document.addEventListener("DOMContentLoaded", injector)
   window.addEventListener("load", injector)

@@ -72,10 +72,7 @@ export async function getManifest() {
     ],
     web_accessible_resources: [
       {
-        resources: [
-          "dist/contentScripts/hako-epub.css",
-          "dist/contentScripts/inject.global.js"
-        ],
+        resources: ["dist/contentScripts/hako-epub.css", "dist/contentScripts/inject.global.js"],
         matches: host_permissions
       }
     ],
