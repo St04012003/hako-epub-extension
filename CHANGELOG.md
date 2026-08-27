@@ -1,3 +1,10 @@
+## [0.7.5](https://github.com/tachibana-shin/hako-epub-extension/compare/v0.7.4...v0.7.5) (2026-08-27)
+
+
+### Bug Fixes
+
+* allow concurrent global ([411ad39](https://github.com/tachibana-shin/hako-epub-extension/commit/411ad394f4d245b58623a0727b992821b40bb83a))
+
 ## [0.7.4](https://github.com/tachibana-shin/hako-epub-extension/compare/v0.7.3...v0.7.4) (2026-06-27)
 
 
