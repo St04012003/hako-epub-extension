@@ -4,12 +4,12 @@ import type { FetcherOptions, PromiseOr } from "../registry"
 import { load } from "cheerio"
 import { EPub } from "epub-gen-memory/bundle"
 import { del, get, set } from "idb-keyval"
-import pLimit from "p-limit"
 import { retryAsync } from "ts-retry"
 import UTMCandomebeTTF from "~/assets/fonts/UTM_Candombe.ttf?uint8array&base64"
 import UTMLinotypeZapfinoKTTTF from "~/assets/fonts/UTM_LinotypeZapfinoKT.ttf?uint8array&base64"
 import { cleanChapter } from "./clean-chapter"
 import { editFilesInEPUB } from "./edit-files-in-epub"
+import { getGlobalLimiter } from "./global-limiters"
 import { sleep, getFetchUrl, getFetchCredentials } from "./utils"
 
 class EPubExtend extends EPub {
@@ -29,15 +29,11 @@ class EPubExtend extends EPub {
 
     const retryResource = this.fetcherOptions.retryResource ?? 3
     const fetchTimeoutResource = this.fetcherOptions.fetchTimeoutResource ?? 100
+    const limit = getGlobalLimiter(this.fetcherOptions.concurrency ?? 5)
 
-    for (let i = 0; i < this.options.fonts.length; i += this.options.batchSize) {
-      const fontContents: {
-        filename: string
-        url: string
-        mediaType: string
-        data: Blob | string
-      }[] = await Promise.all(
-        this.options.fonts.slice(i, i + this.options.batchSize).map((font) => {
+    const fontContents = await Promise.all(
+      this.options.fonts.map((font, i) =>
+        limit(() => {
           const d = retryAsync(
             () => {
               return fetch(getFetchUrl(font.url), {
@@ -75,10 +71,10 @@ class EPubExtend extends EPub {
             : d
         })
       )
-      fontContents.forEach((font) => {
-        fonts.file(font.filename, font.data)
-      })
-    }
+    )
+    fontContents.forEach((font) => {
+      fonts.file(font.filename, font.data)
+    })
   }
 
   private readonly imagePromiseCache = new Map<string, Promise<Blob | string>>()
@@ -141,26 +137,22 @@ class EPubExtend extends EPub {
     const oebps = this.zip.folder("OEBPS")!
     const images = oebps.folder("images")!
 
-    for (let i = 0; i < this.images.length; i += this.options.batchSize) {
-      const imageContents: {
-        data: Blob | string
-        url: string
-        id: string
-        extension: string | null
-        mediaType: string | null
-      }[] = await Promise.all(
-        this.images.slice(i, i + this.options.batchSize).map((image) =>
+    const limit = getGlobalLimiter(this.fetcherOptions.concurrency ?? 5)
+
+    const imageContents = await Promise.all(
+      this.images.map((image, i) =>
+        limit(() =>
           this.fetchImage(image.url, i).then((res) => ({
             ...image,
             data: res
           }))
         )
       )
-      imageContents.forEach((image) => {
-        if (!image.data) return
-        images.file(`${image.id}.${image.extension}`, image.data)
-      })
-    }
+    )
+    imageContents.forEach((image) => {
+      if (!image.data) return
+      images.file(`${image.id}.${image.extension}`, image.data)
+    })
   }
 
   override async render() {
@@ -219,7 +211,8 @@ export async function generateEpub(
     chapters
   } = options
 
-  const limit = pLimit(fetcherOptions.concurrency ?? 5)
+  const concurrency = fetcherOptions.concurrency ?? 5
+  const limit = getGlobalLimiter(concurrency)
 
   const results: Content = await Promise.all(
     chapters.map((chapter, index) =>
@@ -298,7 +291,7 @@ export async function generateEpub(
       lang,
       ignoreFailedDownloads: true,
       retryTimes: fetcherOptions.retry ?? 5_000,
-      batchSize: fetcherOptions.concurrency ?? 5
+      batchSize: concurrency
     },
     results,
     (progress) => {
@@ -310,12 +303,9 @@ export async function generateEpub(
   const coverImg = cover
     ? await retryAsync(
         () => {
-          return fetch(
-            getFetchUrl(cover),
-            {
-              credentials: getFetchCredentials(cover)
-            }
-          ).then(async (res) =>
+          return fetch(getFetchUrl(cover), {
+            credentials: getFetchCredentials(cover)
+          }).then(async (res) =>
             res.ok
               ? {
                   buffer: await res.arrayBuffer(),

@@ -3,9 +3,9 @@ import type { FetcherOptions, PromiseOr } from "../registry"
 import { load } from "cheerio"
 import JSZip from "jszip"
 import { del, get, set } from "idb-keyval"
-import pLimit from "p-limit"
 import { retryAsync } from "ts-retry"
 import { cleanChapter } from "./clean-chapter"
+import { getGlobalLimiter } from "./global-limiters"
 import { sleep, getFetchUrl, getFetchCredentials } from "./utils"
 
 export interface OptionsGenerateCbz {
@@ -29,12 +29,18 @@ function generateComicInfoXml(options: OptionsGenerateCbz): string {
   const escapeXml = (unsafe: string) => {
     return unsafe.replace(/[<>&'"]/g, (c) => {
       switch (c) {
-        case "<": return "&lt;"
-        case ">": return "&gt;"
-        case "&": return "&amp;"
-        case "'": return "&apos;"
-        case "\"": return "&quot;"
-        default: return c
+        case "<":
+          return "&lt;"
+        case ">":
+          return "&gt;"
+        case "&":
+          return "&amp;"
+        case "'":
+          return "&apos;"
+        case '"':
+          return "&quot;"
+        default:
+          return c
       }
     })
   }
@@ -70,12 +76,10 @@ export async function generateCbz(
   preParse: (html: string) => PromiseOr<string>,
   fetchChapter: (chapter: { name: string; href: string }) => PromiseLike<Response>
 ): Promise<Uint8Array> {
-  const {
-    chapters,
-    cover
-  } = options
+  const { chapters, cover } = options
 
-  const limit = pLimit(fetcherOptions.concurrency ?? 5)
+  const concurrency = fetcherOptions.concurrency ?? 5
+  const limit = getGlobalLimiter(concurrency)
 
   onProgress(0)
 
@@ -163,7 +167,7 @@ export async function generateCbz(
   })
 
   const zip = new JSZip()
-  const imageLimit = pLimit(fetcherOptions.concurrency ?? 5)
+  const imageLimit = getGlobalLimiter(concurrency)
   const retryResource = fetcherOptions.retryResource ?? 3
   const fetchTimeoutResource = fetcherOptions.fetchTimeoutResource ?? 100
   zip.file("ComicInfo.xml", generateComicInfoXml(options))

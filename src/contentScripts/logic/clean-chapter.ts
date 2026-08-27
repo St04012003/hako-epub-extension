@@ -53,8 +53,7 @@ export async function cleanChapter(
     if ($el.attr("style")?.match(/display:\s*none/)) $el.remove()
   })
 
-  const rawHtml =
-    typeof qContainer === "function" ? qContainer($) : $(qContainer).html()
+  const rawHtml = typeof qContainer === "function" ? qContainer($) : $(qContainer).html()
   if (!rawHtml) return null
 
   const output = await minify(rawHtml, {
