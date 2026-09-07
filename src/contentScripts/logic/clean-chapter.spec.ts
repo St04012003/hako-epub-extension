@@ -1,5 +1,5 @@
 import { load } from "cheerio"
-import { cleanChapter } from "./clean-chapter"
+import { cleanChapter, renderEndnotes } from "./clean-chapter"
 
 describe("cleanChapter", () => {
   const identity = ($: ReturnType<typeof load>) => $
@@ -88,6 +88,47 @@ describe("cleanChapter", () => {
     const result = await cleanChapter(html, "#content", noop, identity, passThrough)
     expect(result).toContain('href="#note1"')
     expect(result).toContain('class="note-link"')
+    expect(result).toContain(">*</a>")
+    expect(result).not.toContain(">**</a>")
+  })
+
+  it("moves notes to endnotes and creates two-way links", async () => {
+    const html = `<div id="content">
+      <p>text [note10] and again [note10]</p>
+      <div class="note-reg">
+        <h2>Ghi chú</h2>
+        <div id="note10">
+          <a href="#anchor-note10" class="none-print inline">up</a>
+          <div style="display: none"><span class="note-content">hidden duplicate</span></div>
+          <span class="note-content_real">the <strong>note</strong></span>
+        </div>
+      </div>
+    </div>`
+    const endnotes: Parameters<typeof renderEndnotes>[0] = []
+    const result = await cleanChapter(html, "#content", noop, identity, passThrough, {
+      chapterIndex: 0,
+      chapterFilename: "chapter-0001.xhtml",
+      endnotesFilename: "endnotes.xhtml",
+      endnotes
+    })
+
+    expect(result).toContain('href="endnotes.xhtml#endnote-1-1"')
+    expect(result).toContain('id="note-ref-1-1-1"')
+    expect(result).toContain('id="note-ref-1-1-2"')
+    expect(result).not.toContain("the <strong>note</strong>")
+    expect(result).not.toContain("Ghi chú")
+    expect(endnotes).toHaveLength(1)
+    expect(endnotes[0].content).toBe("the <strong>note</strong>")
+    expect(endnotes[0].backlinks).toEqual([
+      "chapter-0001.xhtml#note-ref-1-1-1",
+      "chapter-0001.xhtml#note-ref-1-1-2"
+    ])
+
+    const rendered = renderEndnotes(endnotes, "vi")
+    expect(rendered).toContain('id="endnote-1-1"')
+    expect(rendered).toContain('href="chapter-0001.xhtml#note-ref-1-1-1"')
+    expect(rendered).toContain('href="chapter-0001.xhtml#note-ref-1-1-2"')
+    expect(rendered).toContain("the <strong>note</strong>")
   })
 
   it("leaves [noteX] references untouched when note does not exist", async () => {
