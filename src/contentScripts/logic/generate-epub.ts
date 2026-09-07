@@ -7,7 +7,8 @@ import { del, get, set } from "idb-keyval"
 import { retryAsync } from "ts-retry"
 import UTMCandomebeTTF from "~/assets/fonts/UTM_Candombe.ttf?uint8array&base64"
 import UTMLinotypeZapfinoKTTTF from "~/assets/fonts/UTM_LinotypeZapfinoKT.ttf?uint8array&base64"
-import { cleanChapter } from "./clean-chapter"
+import { cleanChapter, renderEndnotes } from "./clean-chapter"
+import type { ChapterEndnote } from "./clean-chapter"
 import { editFilesInEPUB } from "./edit-files-in-epub"
 import { getGlobalLimiter } from "./global-limiters"
 import { sleep, getFetchUrl, getFetchCredentials } from "./utils"
@@ -213,23 +214,44 @@ export async function generateEpub(
 
   const concurrency = fetcherOptions.concurrency ?? 5
   const limit = getGlobalLimiter(concurrency)
+  const endnotesFilename = "endnotes.xhtml"
 
-  const results: Content = await Promise.all(
+  const processedResults = await Promise.all(
     chapters.map((chapter, index) =>
       limit(async () => {
+        const chapterFilename = `chapter-${String(index + 1).padStart(4, "0")}.xhtml`
+
+        async function parseChapter(html: string) {
+          const endnotes: ChapterEndnote[] = []
+          const content = await cleanChapter(
+            html,
+            qContainer,
+            cleaner,
+            transformContainer,
+            preParse,
+            {
+              chapterIndex: index,
+              chapterFilename,
+              endnotesFilename,
+              endnotes
+            }
+          )
+
+          return { content, endnotes }
+        }
+
         async function retry(idx: number) {
           const cached = await get(`cached_${chapter.href}`)
           if (cached) {
-            const content = await cleanChapter(
-              cached,
-              qContainer,
-              cleaner,
-              transformContainer,
-              preParse
-            )
-            if (content !== null) {
+            const parsed = await parseChapter(cached)
+            if (parsed.content !== null) {
               onProgress((((index + 1) / chapters.length) * 50) / 100)
-              return { title: chapter.name, content }
+              return {
+                title: chapter.name,
+                content: parsed.content,
+                filename: chapterFilename,
+                endnotes: parsed.endnotes
+              }
             }
 
             del(`cached_${chapter.href}`)
@@ -237,7 +259,12 @@ export async function generateEpub(
 
           // fix empty content for javascript: href
           if (chapter.href.startsWith("javascript:")) {
-            return { title: chapter.name, content: "" }
+            return {
+              title: chapter.name,
+              content: "",
+              filename: chapterFilename,
+              endnotes: []
+            }
           }
 
           const response = await fetchChapter(chapter)
@@ -255,14 +282,8 @@ export async function generateEpub(
           const html = await response.text()
           await set(`cached_${chapter.href}`, html)
 
-          const content = await cleanChapter(
-            html,
-            qContainer,
-            cleaner,
-            transformContainer,
-            preParse
-          )
-          if (content === null) {
+          const parsed = await parseChapter(html)
+          if (parsed.content === null) {
             console.warn(chapter)
             throw new Error(`Can't find content in chapter '${chapter.name}'`)
           }
@@ -273,13 +294,32 @@ export async function generateEpub(
             await sleep(fetcherOptions.sleep)
           }
 
-          return { title: chapter.name, content }
+          return {
+            title: chapter.name,
+            content: parsed.content,
+            filename: chapterFilename,
+            endnotes: parsed.endnotes
+          }
         }
 
         return await retry(0)
       })
     )
   )
+
+  const allEndnotes = processedResults.flatMap((chapter) => chapter.endnotes)
+  const results: Content = [
+    ...processedResults.map(({ endnotes: _, ...chapter }) => chapter),
+    ...(allEndnotes.length
+      ? [
+          {
+            title: lang === "vi" ? "Chú thích" : "Notes",
+            filename: endnotesFilename,
+            content: renderEndnotes(allEndnotes, lang)
+          }
+        ]
+      : [])
+  ]
 
   const buffer = await new EPubExtend(
     {
@@ -407,6 +447,28 @@ sup {
 a {
   text-decoration: none;
   color: blue;
+}
+.note-link {
+  vertical-align: super;
+  font-size: 75%;
+  line-height: 0;
+}
+.endnotes-list {
+  padding-left: 1.8em;
+}
+.endnote {
+  margin: 0.8em 0;
+}
+.endnote-content,
+.endnote-content p {
+  text-indent: 0;
+}
+.endnote-backlinks {
+  margin: 0.2em 0 0;
+  text-indent: 0;
+}
+.endnote-backlink {
+  padding: 0 0.2em;
 }
 aside {
   padding: 0.2em;
