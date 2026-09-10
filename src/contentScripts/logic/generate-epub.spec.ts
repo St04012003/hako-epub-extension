@@ -1,5 +1,5 @@
 import JSZip from "jszip"
-import { vi } from "vitest"
+import { afterEach, vi } from "vitest"
 
 vi.mock("idb-keyval", () => ({
   del: vi.fn(async () => undefined),
@@ -10,6 +10,8 @@ vi.mock("idb-keyval", () => ({
 import { generateEpub } from "./generate-epub"
 
 describe("generateEpub endnotes", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
   it("places one endnotes.xhtml last and preserves two-way links", async () => {
     const chapters = [
       {
@@ -91,5 +93,56 @@ describe("generateEpub endnotes", () => {
     expect(toc.indexOf('href="chapter-0002.xhtml"')).toBeLessThan(
       toc.indexOf('href="endnotes.xhtml"')
     )
+  })
+
+  it("packages a CORS-fetched JPEG with a valid filename and media type", async () => {
+    vi.stubGlobal("location", { origin: "https://hako.vn" })
+    const fetchMock = vi.fn(async () =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        blob: async () => new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])])
+      } as Response)
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const buffer = await generateEpub(
+      {
+        title: "Image regression test",
+        bookTitle: "Test series",
+        author: ["Test author"],
+        tags: [],
+        publisher: "Test publisher",
+        lang: "vi",
+        chapterNumber: 1,
+        chapters: [{ name: "Chapter 1", href: "https://hako.vn/chapter-1" }]
+      },
+      () => undefined,
+      "#chapter-content",
+      () => undefined,
+      ($) => $,
+      { concurrency: 1, retry: 1, retryResource: 1 },
+      (html) => html,
+      () =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          text: async () =>
+            '<div id="chapter-content"><img src="https://cdn.example.com/illustration.jpg" /></div>'
+        } as Response)
+    )
+
+    const epub = await JSZip.loadAsync(buffer)
+    const opf = await epub.file("OEBPS/content.opf")!.async("string")
+    const chapter = await epub.file("OEBPS/chapter-0001.xhtml")!.async("string")
+    const imageMatch = opf.match(/href="(images\/[^"]+\.jpeg)" media-type="image\/jpeg"/)
+
+    expect(fetchMock).toHaveBeenCalledWith("https://cdn.example.com/illustration.jpg#cors", {
+      credentials: "same-origin"
+    })
+    expect(imageMatch).not.toBeNull()
+    expect(chapter).toContain(`src="${imageMatch![1]}"`)
+    expect(epub.file(`OEBPS/${imageMatch![1]}`)).not.toBeNull()
+    expect(opf).not.toContain('media-type=""')
   })
 })
