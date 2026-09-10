@@ -33,17 +33,18 @@ describe("cleanChapter", () => {
     expect(result).toBeNull()
   })
 
-  it("appends #cors to image src", async () => {
+  it("keeps the original image URL so its file type can be inferred", async () => {
     const html = `<div id="content"><img src="https://example.com/img.jpg"/></div>`
     const result = await cleanChapter(html, "#content", noop, identity, passThrough)
-    expect(result).toContain("#cors")
+    expect(result).toContain("https://example.com/img.jpg")
+    expect(result).not.toContain("#cors")
   })
 
-  it("does not double-append #cors if already present", async () => {
+  it("removes an old CORS marker from an image URL", async () => {
     const html = `<div id="content"><img src="https://example.com/img.jpg#cors"/></div>`
     const result = await cleanChapter(html, "#content", noop, identity, passThrough)
-    expect(result).toContain("img.jpg#cors")
-    expect(result).not.toContain("#cors#cors")
+    expect(result).toContain("img.jpg")
+    expect(result).not.toContain("#cors")
   })
 
   it("unwraps <a> parent of <img>", async () => {
@@ -56,8 +57,16 @@ describe("cleanChapter", () => {
   it("uses data-src over src for images", async () => {
     const html = `<div id="content"><img data-src="real.jpg" src="placeholder.jpg"/></div>`
     const result = await cleanChapter(html, "#content", noop, identity, passThrough)
-    expect(result).toContain("real.jpg#cors")
-    expect(result).not.toContain("placeholder.jpg#cors")
+    expect(result).toContain("real.jpg")
+    expect(result).not.toContain("placeholder.jpg")
+  })
+
+  it("removes images that have no usable source", async () => {
+    const html = `<div id="content"><p>Before</p><img alt="missing"/><p>After</p></div>`
+    const result = await cleanChapter(html, "#content", noop, identity, passThrough)
+    expect(result).not.toContain("<img")
+    expect(result).toContain("Before")
+    expect(result).toContain("After")
   })
 
   it('removes elements with style "display: none"', async () => {
