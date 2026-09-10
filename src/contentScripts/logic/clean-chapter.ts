@@ -2,6 +2,7 @@ import type { CheerioAPI } from "cheerio"
 import type { PromiseOr } from "registry/types"
 import { load } from "cheerio"
 import { minify } from "html-minifier-terser"
+import { stripCorsMarker } from "./utils"
 
 export interface ChapterEndnote {
   id: string
@@ -75,13 +76,21 @@ export async function cleanChapter(
 
   $("img").each((_, image) => {
     const $img = $(image)
-    const src = $img.attr("data-src") ?? $img.attr("src")!
+    const src = $img.attr("data-src") ?? $img.attr("src")
 
     if ($img.parent().is("a")) {
       $img.parent().replaceWith($img)
     }
 
-    $img.attr("src", src.endsWith("#cors") ? src : `${src}#cors`)
+    // Keep the original resource URL in the chapter XHTML. epub-gen-memory
+    // determines the packaged filename and media type from this value; adding
+    // `#cors` here makes a `.jpg#cors` URL look like an unknown file type.
+    // The CORS marker is applied only when the resource is actually fetched.
+    if (src) {
+      $img.attr("src", stripCorsMarker(src))
+    } else {
+      $img.remove()
+    }
   })
 
   cleaner($)
